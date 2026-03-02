@@ -3,6 +3,7 @@
 import base64
 import logging
 import math
+from typing import Any
 
 import httpx
 import pymupdf
@@ -36,7 +37,7 @@ def _scale_image(
     if len(image_bytes) <= max_bytes:
         return image_bytes, width, height
 
-    pix = pymupdf.Pixmap(image_bytes)  # type: ignore[no-untyped-call]
+    pix: Any = pymupdf.Pixmap(image_bytes)
 
     # Estimate the shrink factor needed.  PNG size doesn't scale
     # linearly with pixel count, but area is a reasonable proxy.
@@ -44,11 +45,11 @@ def _scale_image(
     factor = max(2, math.ceil(math.sqrt(ratio)))
 
     while factor <= max(width, height) // min_dimension:
-        shrunk = pymupdf.Pixmap(pix, 0)  # type: ignore[no-untyped-call]  # copy
-        shrunk.shrink(factor)  # type: ignore[no-untyped-call]
-        png_bytes: bytes = shrunk.tobytes("png")  # type: ignore[no-untyped-call]
-        new_w = shrunk.width
-        new_h = shrunk.height
+        shrunk: Any = pymupdf.Pixmap(pix, 0)  # copy
+        shrunk.shrink(factor)
+        png_bytes: bytes = shrunk.tobytes("png")
+        new_w: int = shrunk.width
+        new_h: int = shrunk.height
 
         if len(png_bytes) <= max_bytes:
             return png_bytes, new_w, new_h
@@ -57,13 +58,13 @@ def _scale_image(
 
     # Could not fit under the limit without going below min_dimension.
     # Return the smallest version we produced.
-    shrunk = pymupdf.Pixmap(pix, 0)  # type: ignore[no-untyped-call]
+    shrunk = pymupdf.Pixmap(pix, 0)
     max_factor = max(1, max(width, height) // min_dimension)
-    shrunk.shrink(max_factor)  # type: ignore[no-untyped-call]
+    shrunk.shrink(max_factor)
     return (
-        shrunk.tobytes("png"),  # type: ignore[no-untyped-call]
-        shrunk.width,
-        shrunk.height,
+        shrunk.tobytes("png"),
+        int(shrunk.width),
+        int(shrunk.height),
     )
 
 
@@ -71,8 +72,8 @@ def _to_png(image_bytes: bytes, ext: str) -> bytes:
     """Convert image bytes to PNG if not already in that format."""
     if ext == "png":
         return image_bytes
-    pix = pymupdf.Pixmap(image_bytes)  # type: ignore[no-untyped-call]
-    result: bytes = pix.tobytes("png")  # type: ignore[no-untyped-call]
+    pix: Any = pymupdf.Pixmap(image_bytes)
+    result: bytes = pix.tobytes("png")
     return result
 
 
@@ -86,26 +87,26 @@ def _extract_figures_from_pdf(
 ) -> list[Figure]:
     """Extract images from PDF bytes, filtering out small/decorative ones."""
     figures: list[Figure] = []
-    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")  # type: ignore[no-untyped-call]
+    doc: Any = pymupdf.open(stream=pdf_bytes, filetype="pdf")
 
     try:
         for page_num in range(len(doc)):
             if len(figures) >= max_count:
                 break
-            page = doc[page_num]
-            image_list = page.get_images(full=True)  # type: ignore[attr-defined]
+            page: Any = doc[page_num]
+            image_list: list[tuple[Any, ...]] = page.get_images(full=True)
 
-            for img_index, img_info in enumerate(image_list):
+            for _, img_info in enumerate(image_list):
                 if len(figures) >= max_count:
                     break
 
-                xref = img_info[0]
-                base_image = doc.extract_image(xref)  # type: ignore[no-untyped-call]
+                xref: int = img_info[0]
+                base_image: dict[str, Any] | None = doc.extract_image(xref)
                 if base_image is None:
                     continue
 
-                width = base_image["width"]
-                height = base_image["height"]
+                width: int = base_image["width"]
+                height: int = base_image["height"]
 
                 if width < min_dimension or height < min_dimension:
                     continue
@@ -131,7 +132,7 @@ def _extract_figures_from_pdf(
                     )
                 )
     finally:
-        doc.close()  # type: ignore[no-untyped-call]
+        doc.close()
 
     return figures
 
