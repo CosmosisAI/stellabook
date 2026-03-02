@@ -1,0 +1,92 @@
+"""Tests for the FastAPI application."""
+
+import json
+from unittest.mock import AsyncMock, patch
+
+from httpx import ASGITransport, AsyncClient
+
+from stellabook.fastapi_app import app
+from stellabook.notebook_models import CellType, NotebookCell, NotebookContent
+
+
+class TestHealthEndpoint:
+    async def test_health_returns_ok(self) -> None:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["version"] == "0.1.0"
+
+
+class TestGenerateEndpoint:
+    async def test_generate_returns_notebook(self) -> None:
+        mock_content = NotebookContent(
+            title="Test Notebook",
+            cells=[
+                NotebookCell(cell_type=CellType.MARKDOWN, source="# Test"),
+                NotebookCell(cell_type=CellType.CODE, source="x = 1"),
+            ],
+        )
+        mock_paper = AsyncMock()
+        mock_research = "## Background\nSome research."
+        mock_figures: list[object] = []
+
+        with (
+            patch("stellabook.fastapi_app.ArxivClient") as mock_arxiv_cls,
+            patch(
+                "stellabook.fastapi_app.extract_figures",
+                return_value=mock_figures,
+            ) as mock_extract,
+            patch(
+                "stellabook.fastapi_app.research_paper",
+                return_value=mock_research,
+            ) as mock_research_fn,
+            patch(
+                "stellabook.fastapi_app.generate_notebook_content",
+                return_value=mock_content,
+            ) as mock_gen,
+        ):
+            mock_arxiv = AsyncMock()
+            mock_arxiv.get_paper.return_value = mock_paper
+            mock_arxiv_cls.return_value.__aenter__ = AsyncMock(return_value=mock_arxiv)
+            mock_arxiv_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as ac:
+                response = await ac.post(
+                    "/generate",
+                    json={"arxiv_id": "2301.07041"},
+                )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/x-ipynb+json"
+        assert "2301.07041.ipynb" in response.headers["content-disposition"]
+
+        nb_data = json.loads(response.text)
+        assert nb_data["nbformat"] == 4
+        assert len(nb_data["cells"]) == 2
+
+        mock_extract.assert_called_once_with(mock_paper)
+        mock_research_fn.assert_called_once_with(mock_paper)
+        mock_gen.assert_called_once_with(
+            mock_paper, mock_research, figures=mock_figures
+        )
+
+    async def test_generate_returns_404_for_unknown_paper(self) -> None:
+        with patch("stellabook.fastapi_app.ArxivClient") as mock_arxiv_cls:
+            mock_arxiv = AsyncMock()
+            mock_arxiv.get_paper.return_value = None
+            mock_arxiv_cls.return_value.__aenter__ = AsyncMock(return_value=mock_arxiv)
+            mock_arxiv_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as ac:
+                response = await ac.post(
+                    "/generate",
+                    json={"arxiv_id": "0000.00000"},
+                )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Paper not found"
