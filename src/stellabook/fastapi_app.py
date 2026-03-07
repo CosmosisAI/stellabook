@@ -1,12 +1,15 @@
 """Minimal FastAPI application for Stellabook."""
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 
 from stellabook.arxiv_client import ArxivClient
+from stellabook.config import get_notebook_model, get_research_model
 from stellabook.figure_extractor import extract_figures
 from stellabook.generator import generate_notebook_content, research_paper
 from stellabook.notebook_builder import build_notebook, notebook_to_json
@@ -14,7 +17,15 @@ from stellabook.notebook_models import GenerateRequest
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Stellabook API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    app.state.research_model = get_research_model()
+    app.state.notebook_model = get_notebook_model()
+    yield
+
+
+app = FastAPI(title="Stellabook API", version="0.1.0", lifespan=lifespan)
 
 
 @app.get("/health")
@@ -31,8 +42,10 @@ async def generate(request: GenerateRequest) -> Response:
 
     figures = await extract_figures(paper)
 
-    research = await research_paper(paper)
-    content = await generate_notebook_content(paper, research, figures=figures)
+    research = await research_paper(paper, model=app.state.research_model)
+    content = await generate_notebook_content(
+        paper, research, figures=figures, model=app.state.notebook_model
+    )
     nb = build_notebook(content, figures=figures)
     nb_json = notebook_to_json(nb)
 

@@ -1,9 +1,10 @@
 """Tests for the generator module."""
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from langchain_core.messages import AIMessage
 
 from stellabook.generator import (
     _build_notebook_user_message,
@@ -12,7 +13,7 @@ from stellabook.generator import (
     research_paper,
 )
 from stellabook.models import Author, Category, Paper
-from stellabook.notebook_models import CellType, Figure
+from stellabook.notebook_models import CellType, Figure, NotebookContent
 
 
 def _make_paper() -> Paper:
@@ -123,133 +124,132 @@ class TestResearchPaper:
     async def test_calls_model_and_returns_markdown(self) -> None:
         paper = _make_paper()
 
-        mock_message = AsyncMock()
-        mock_message.content = [AsyncMock(text=SAMPLE_RESEARCH)]
+        mock_model = AsyncMock()
+        mock_model.ainvoke.return_value = AIMessage(content=SAMPLE_RESEARCH)
 
-        mock_client = AsyncMock()
-        mock_client.messages.create.return_value = mock_message
-
-        result = await research_paper(paper, client=mock_client)
+        result = await research_paper(paper, model=mock_model)
 
         assert isinstance(result, str)
         assert "Addresses gap in X." in result
         assert "Insight 1" in result
-        mock_client.messages.create.assert_called_once()
+        mock_model.ainvoke.assert_called_once()
 
-        call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert call_kwargs["model"] == "claude-sonnet-4-20250514"
-        assert "Test Paper Title" in call_kwargs["messages"][0]["content"]
-
-
-def _make_tool_use_block(
-    tool_input: dict[str, object],
-) -> AsyncMock:
-    """Create a mock tool_use content block."""
-    block = AsyncMock()
-    block.type = "tool_use"
-    block.name = "create_notebook"
-    block.input = tool_input
-    return block
+        messages = mock_model.ainvoke.call_args.args[0]
+        assert "Test Paper Title" in messages[1].content
 
 
 class TestGenerateNotebookContent:
-    async def test_calls_model_with_tool_use(self) -> None:
+    async def test_calls_model_with_structured_output(self) -> None:
         paper = _make_paper()
-        tool_input = {
-            "title": "Generated Notebook",
-            "cells": [
-                {
-                    "cell_type": "markdown",
-                    "source": "# Intro",
-                },
-                {
-                    "cell_type": "code",
-                    "source": "import numpy as np",
-                },
+        parsed = NotebookContent(
+            title="Generated Notebook",
+            cells=[
+                {"cell_type": "markdown", "source": "# Intro"},  # type: ignore[list-item]
+                {"cell_type": "code", "source": "import numpy as np"},  # type: ignore[list-item]
             ],
+        )
+
+        raw_message = AIMessage(content="")
+        raw_message.response_metadata = {"stop_reason": "end_turn"}
+
+        structured_model = AsyncMock()
+        structured_model.ainvoke.return_value = {
+            "raw": raw_message,
+            "parsed": parsed,
+            "parsing_error": None,
         }
 
-        mock_message = AsyncMock()
-        mock_message.stop_reason = "tool_use"
-        mock_message.content = [_make_tool_use_block(tool_input)]
-
-        mock_client = AsyncMock()
-        mock_client.messages.create.return_value = mock_message
+        mock_model = MagicMock()
+        mock_model.with_structured_output.return_value = structured_model
 
         result = await generate_notebook_content(
-            paper, SAMPLE_RESEARCH, client=mock_client
+            paper, SAMPLE_RESEARCH, model=mock_model
         )
 
         assert result.title == "Generated Notebook"
         assert len(result.cells) == 2
         assert result.cells[0].cell_type == CellType.MARKDOWN
         assert result.cells[1].cell_type == CellType.CODE
-        mock_client.messages.create.assert_called_once()
+        mock_model.with_structured_output.assert_called_once_with(
+            NotebookContent, include_raw=True
+        )
+        structured_model.ainvoke.assert_called_once()
 
-        call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert call_kwargs["model"] == "claude-sonnet-4-20250514"
-        assert call_kwargs["tools"] is not None
-        assert call_kwargs["tool_choice"] == {
-            "type": "tool",
-            "name": "create_notebook",
-        }
-        user_msg = call_kwargs["messages"][0]["content"]
-        assert "Test Paper Title" in user_msg
-        assert "Research Analysis:" in user_msg
-        assert "Addresses gap in X." in user_msg
+        messages = structured_model.ainvoke.call_args.args[0]
+        assert "Test Paper Title" in messages[1].content
+        assert "Research Analysis:" in messages[1].content
+        assert "Addresses gap in X." in messages[1].content
 
     async def test_raises_on_max_tokens(self) -> None:
         paper = _make_paper()
+        parsed = NotebookContent(
+            title="Partial",
+            cells=[{"cell_type": "markdown", "source": "# Partial"}],  # type: ignore[list-item]
+        )
 
-        mock_message = AsyncMock()
-        mock_message.stop_reason = "max_tokens"
-        mock_message.content = []
+        raw_message = AIMessage(content="")
+        raw_message.response_metadata = {"stop_reason": "max_tokens"}
 
-        mock_client = AsyncMock()
-        mock_client.messages.create.return_value = mock_message
-
-        with pytest.raises(ValueError, match="truncated"):
-            await generate_notebook_content(paper, SAMPLE_RESEARCH, client=mock_client)
-
-    async def test_raises_when_no_tool_call(self) -> None:
-        paper = _make_paper()
-
-        # Model returns a text block instead of tool use
-        text_block = AsyncMock()
-        text_block.type = "text"
-
-        mock_message = AsyncMock()
-        mock_message.stop_reason = "end_turn"
-        mock_message.content = [text_block]
-
-        mock_client = AsyncMock()
-        mock_client.messages.create.return_value = mock_message
-
-        with pytest.raises(ValueError, match="did not call the create_notebook tool"):
-            await generate_notebook_content(paper, SAMPLE_RESEARCH, client=mock_client)
-
-    async def test_handles_latex_in_tool_input(self) -> None:
-        """Tool use handles LaTeX escaping correctly."""
-        paper = _make_paper()
-        tool_input = {
-            "title": "Math Notebook",
-            "cells": [
-                {
-                    "cell_type": "markdown",
-                    "source": ("The formula is $\\alpha + \\beta = \\gamma$"),
-                },
-            ],
+        structured_model = AsyncMock()
+        structured_model.ainvoke.return_value = {
+            "raw": raw_message,
+            "parsed": parsed,
+            "parsing_error": None,
         }
 
-        mock_message = AsyncMock()
-        mock_message.stop_reason = "tool_use"
-        mock_message.content = [_make_tool_use_block(tool_input)]
+        mock_model = MagicMock()
+        mock_model.with_structured_output.return_value = structured_model
 
-        mock_client = AsyncMock()
-        mock_client.messages.create.return_value = mock_message
+        with pytest.raises(ValueError, match="truncated"):
+            await generate_notebook_content(paper, SAMPLE_RESEARCH, model=mock_model)
+
+    async def test_raises_on_parsing_error(self) -> None:
+        paper = _make_paper()
+
+        raw_message = AIMessage(content="")
+        raw_message.response_metadata = {"stop_reason": "end_turn"}
+
+        structured_model = AsyncMock()
+        structured_model.ainvoke.return_value = {
+            "raw": raw_message,
+            "parsed": None,
+            "parsing_error": "Invalid JSON in model output",
+        }
+
+        mock_model = MagicMock()
+        mock_model.with_structured_output.return_value = structured_model
+
+        with pytest.raises(ValueError, match="Failed to parse notebook content"):
+            await generate_notebook_content(paper, SAMPLE_RESEARCH, model=mock_model)
+
+    async def test_handles_latex_in_structured_output(self) -> None:
+        """Structured output handles LaTeX escaping correctly."""
+        paper = _make_paper()
+        parsed = NotebookContent(
+            title="Math Notebook",
+            cells=[
+                {  # type: ignore[list-item]
+                    "cell_type": "markdown",
+                    "source": "The formula is $\\alpha + \\beta = \\gamma$",
+                },
+            ],
+        )
+
+        raw_message = AIMessage(content="")
+        raw_message.response_metadata = {"stop_reason": "end_turn"}
+
+        structured_model = AsyncMock()
+        structured_model.ainvoke.return_value = {
+            "raw": raw_message,
+            "parsed": parsed,
+            "parsing_error": None,
+        }
+
+        mock_model = MagicMock()
+        mock_model.with_structured_output.return_value = structured_model
 
         result = await generate_notebook_content(
-            paper, SAMPLE_RESEARCH, client=mock_client
+            paper, SAMPLE_RESEARCH, model=mock_model
         )
 
         assert "\\alpha" in result.cells[0].source

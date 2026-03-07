@@ -1,16 +1,11 @@
 """AI-powered notebook content generation."""
 
-from typing import Any, cast
+from typing import cast
 
-import anthropic
-from anthropic.types import ToolParam
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage, SystemMessage
 
-from stellabook.config import (
-    ANTHROPIC_NOTEBOOK_MAX_TOKENS,
-    ANTHROPIC_NOTEBOOK_MODEL,
-    ANTHROPIC_RESEARCH_MAX_TOKENS,
-    ANTHROPIC_RESEARCH_MODEL,
-)
+from stellabook.config import get_notebook_model, get_research_model
 from stellabook.models import Paper
 from stellabook.notebook_models import Figure, NotebookContent
 
@@ -54,7 +49,8 @@ Use the research analysis to structure the notebook. The analysis \
 identifies the key concepts, insights, and suggests code \
 demonstrations.
 
-Use the create_notebook tool to return the notebook content.
+Return the notebook content as structured output with a title and \
+list of cells.
 
 Content guidelines:
 - Start with a markdown cell: paper title, authors, and a brief \
@@ -88,40 +84,6 @@ present in the extracted image
 - If you are unsure what a figure depicts, it is better to omit it \
 than to guess incorrectly
 """
-
-NOTEBOOK_TOOL: dict[str, Any] = {
-    "name": "create_notebook",
-    "description": "Create a Jupyter notebook with the given content.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "title": {
-                "type": "string",
-                "description": "The notebook title.",
-            },
-            "cells": {
-                "type": "array",
-                "description": "The notebook cells.",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "cell_type": {
-                            "type": "string",
-                            "enum": ["markdown", "code"],
-                            "description": ("The type of cell."),
-                        },
-                        "source": {
-                            "type": "string",
-                            "description": ("The cell content."),
-                        },
-                    },
-                    "required": ["cell_type", "source"],
-                },
-            },
-        },
-        "required": ["title", "cells"],
-    },
-}
 
 
 def _build_user_message(paper: Paper) -> str:
@@ -161,25 +123,16 @@ def _build_notebook_user_message(
 async def research_paper(
     paper: Paper,
     *,
-    client: anthropic.AsyncAnthropic | None = None,
-    model: str = ANTHROPIC_RESEARCH_MODEL,
-    max_tokens: int = ANTHROPIC_RESEARCH_MAX_TOKENS,
+    model: BaseChatModel | None = None,
 ) -> str:
     """Analyze a paper in depth, returning markdown research."""
-    owns_client = client is None
-    if client is None:
-        client = anthropic.AsyncAnthropic()
-    try:
-        message = await client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            system=RESEARCH_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": _build_user_message(paper)}],
-        )
-        return message.content[0].text  # type: ignore[union-attr]
-    finally:
-        if owns_client:
-            await client.close()
+    if model is None:
+        model = get_research_model()
+    response = await model.ainvoke([
+        SystemMessage(content=RESEARCH_SYSTEM_PROMPT),
+        HumanMessage(content=_build_user_message(paper)),
+    ])
+    return cast(str, response.content)  # type: ignore[reportUnknownMemberType]
 
 
 async def generate_notebook_content(
@@ -187,36 +140,30 @@ async def generate_notebook_content(
     research: str,
     *,
     figures: list[Figure] | None = None,
-    client: anthropic.AsyncAnthropic | None = None,
-    model: str = ANTHROPIC_NOTEBOOK_MODEL,
-    max_tokens: int = ANTHROPIC_NOTEBOOK_MAX_TOKENS,
+    model: BaseChatModel | None = None,
 ) -> NotebookContent:
-    """Generate notebook content for a paper using tool use."""
-    owns_client = client is None
-    if client is None:
-        client = anthropic.AsyncAnthropic()
-    try:
-        message = await client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            system=NOTEBOOK_SYSTEM_PROMPT,
-            tools=[cast(ToolParam, NOTEBOOK_TOOL)],
-            tool_choice={"type": "tool", "name": "create_notebook"},
-            messages=[
-                {
-                    "role": "user",
-                    "content": _build_notebook_user_message(paper, research, figures),
-                }
-            ],
+    """Generate notebook content for a paper using structured output."""
+    if model is None:
+        model = get_notebook_model()
+    structured_model = model.with_structured_output(
+        NotebookContent, include_raw=True
+    )
+    result = await structured_model.ainvoke([
+        SystemMessage(content=NOTEBOOK_SYSTEM_PROMPT),
+        HumanMessage(content=_build_notebook_user_message(paper, research, figures)),
+    ])
+    assert isinstance(result, dict)
+
+    if result["parsing_error"] is not None:
+        raise ValueError(f"Failed to parse notebook content: {result['parsing_error']}")
+
+    metadata: dict[str, object] = result["raw"].response_metadata  # type: ignore[union-attr]
+    stop_reason = metadata.get("stop_reason") or metadata.get("finish_reason")
+    if stop_reason == "max_tokens":
+        raise ValueError(
+            "Notebook generation was truncated due to max_tokens limit"
         )
-        if message.stop_reason == "max_tokens":
-            raise ValueError(
-                "Notebook generation was truncated due to max_tokens limit"
-            )
-        for block in message.content:
-            if block.type == "tool_use" and block.name == "create_notebook":
-                return NotebookContent.model_validate(block.input)
-        raise ValueError("Model did not call the create_notebook tool")
-    finally:
-        if owns_client:
-            await client.close()
+
+    parsed = result["parsed"]
+    assert isinstance(parsed, NotebookContent)
+    return parsed

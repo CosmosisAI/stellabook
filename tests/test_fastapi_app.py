@@ -1,7 +1,7 @@
 """Tests for the FastAPI application."""
 
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from httpx import ASGITransport, AsyncClient
 
@@ -32,6 +32,11 @@ class TestGenerateEndpoint:
         mock_paper = AsyncMock()
         mock_research = "## Background\nSome research."
         mock_figures: list[object] = []
+
+        mock_research_model = MagicMock()
+        mock_notebook_model = MagicMock()
+        app.state.research_model = mock_research_model
+        app.state.notebook_model = mock_notebook_model
 
         with (
             patch("stellabook.fastapi_app.ArxivClient") as mock_arxiv_cls,
@@ -69,9 +74,11 @@ class TestGenerateEndpoint:
         assert len(nb_data["cells"]) == 2
 
         mock_extract.assert_called_once_with(mock_paper)
-        mock_research_fn.assert_called_once_with(mock_paper)
+        mock_research_fn.assert_called_once_with(
+            mock_paper, model=mock_research_model
+        )
         mock_gen.assert_called_once_with(
-            mock_paper, mock_research, figures=mock_figures
+            mock_paper, mock_research, figures=mock_figures, model=mock_notebook_model
         )
 
     async def test_generate_returns_404_for_unknown_paper(self) -> None:
