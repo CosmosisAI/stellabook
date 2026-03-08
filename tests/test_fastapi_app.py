@@ -87,6 +87,8 @@ class TestGenerateEndpoint:
         assert nb_data["nbformat"] == 4
         # 3 cells: front matter + markdown + code
         assert len(nb_data["cells"]) == 3
+        front_matter = "".join(nb_data["cells"][0]["source"])
+        assert "Test Paper" in front_matter
 
         mock_extract.assert_called_once_with(mock_paper)
         mock_research_fn.assert_called_once_with(

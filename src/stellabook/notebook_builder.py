@@ -142,7 +142,7 @@ def build_front_matter_cell(paper: Paper) -> NotebookNode:
     """Build a deterministic markdown cell with paper metadata."""
     authors = ", ".join(a.name for a in paper.authors)
     categories = ", ".join(c.term for c in paper.categories)
-    published = paper.published.strftime("%B %d, %Y")
+    published = f"{paper.published.strftime('%B')} {paper.published.day}, {paper.published.year}"
 
     lines = [
         f"# {paper.title}",
