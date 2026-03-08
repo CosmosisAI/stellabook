@@ -53,8 +53,10 @@ Return the notebook content as structured output with a title and \
 list of cells.
 
 Content guidelines:
-- Start with a markdown cell: paper title, authors, and a brief \
-intro explaining the paper's motivation
+- The notebook already includes a metadata header with the paper's \
+title, authors, and links — do not repeat this information. Start \
+directly with a brief introductory markdown cell explaining the \
+paper's motivation and what the reader will learn
 - For each key insight, create a markdown cell explaining it \
 clearly, followed by a code cell when the concept can be \
 illustrated with Python

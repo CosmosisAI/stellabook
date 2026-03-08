@@ -14,6 +14,7 @@ from stellabook.config import (
     NOTEBOOK_NBFORMAT_MINOR,
     NOTEBOOK_NBFORMAT_VERSION,
 )
+from stellabook.models import Paper
 from stellabook.notebook_models import CellType, Figure, NotebookCell, NotebookContent
 
 FIGURE_REF_RE = re.compile(r"!\[([^\]]*)\]\(attachment:(figure_\d+)\.png\)")
@@ -137,9 +138,37 @@ def _embed_figures(
         cell["attachments"] = attachments
 
 
+def build_front_matter_cell(paper: Paper) -> NotebookNode:
+    """Build a deterministic markdown cell with paper metadata."""
+    authors = ", ".join(a.name for a in paper.authors)
+    categories = ", ".join(c.term for c in paper.categories)
+    published = paper.published.strftime("%B %d, %Y")
+
+    lines = [
+        f"# {paper.title}",
+        "",
+        f"**Authors:** {authors}",
+        "",
+        f"**arXiv:** [{paper.arxiv_id}]({paper.abstract_url})",
+        "",
+        f"**Categories:** {categories}",
+        "",
+        f"**Published:** {published}",
+    ]
+
+    if paper.doi:
+        lines += ["", f"**DOI:** {paper.doi}"]
+    if paper.journal_ref:
+        lines += ["", f"**Journal Ref:** {paper.journal_ref}"]
+
+    cell: NotebookNode = nbformat.v4.new_markdown_cell("\n".join(lines))  # type: ignore[no-untyped-call]
+    return cell
+
+
 def build_notebook(
     content: NotebookContent,
     *,
+    paper: Paper | None = None,
     figures: list[Figure] | None = None,
 ) -> NotebookNode:
     """Create a NotebookNode from structured notebook content."""
@@ -160,6 +189,9 @@ def build_notebook(
     install_cell = build_install_cell(packages)
     if install_cell is not None:
         nb.cells.append(install_cell)
+
+    if paper is not None:
+        nb.cells.append(build_front_matter_cell(paper))
 
     for cell in content.cells:
         match cell.cell_type:

@@ -47,7 +47,7 @@ async def generate(request: GenerateRequest) -> Response:
         paper, research, figures=figures, model=app.state.notebook_model,
         interactive=request.interactive,
     )
-    nb = build_notebook(content, figures=figures)
+    nb = build_notebook(content, paper=paper, figures=figures)
     nb_json = notebook_to_json(nb)
 
     filename = f"{request.arxiv_id.replace('/', '_')}.ipynb"
