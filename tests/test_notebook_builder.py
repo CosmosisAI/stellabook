@@ -1,10 +1,13 @@
 """Tests for notebook_builder module."""
 
 import json
+from datetime import datetime, timezone
 
 import nbformat
 
+from stellabook.models import Author, Category, Paper, PaperLink
 from stellabook.notebook_builder import (
+    build_front_matter_cell,
     build_install_cell,
     build_notebook,
     extract_imports,
@@ -12,6 +15,21 @@ from stellabook.notebook_builder import (
     notebook_to_json,
 )
 from stellabook.notebook_models import CellType, Figure, NotebookCell, NotebookContent
+
+_PAPER = Paper(
+    arxiv_id="2301.07041",
+    title="Attention Is All You Need",
+    summary="A test abstract.",
+    authors=[
+        Author(name="Alice Smith", affiliation="MIT"),
+        Author(name="Bob Jones"),
+    ],
+    categories=[Category(term="cs.AI"), Category(term="cs.LG")],
+    links=[],
+    published=datetime(2023, 1, 7, tzinfo=timezone.utc),
+    updated=datetime(2023, 1, 7, tzinfo=timezone.utc),
+    primary_category="cs.AI",
+)
 
 
 class TestBuildNotebook:
@@ -378,3 +396,59 @@ class TestFigureEmbedding:
 
         cell = nb.cells[0]
         assert "attachments" not in cell
+
+
+class TestBuildFrontMatterCell:
+    def test_contains_title_authors_and_metadata(self) -> None:
+        cell = build_front_matter_cell(_PAPER)
+        src = cell.source
+
+        assert cell.cell_type == "markdown"
+        assert src.startswith("# Attention Is All You Need")
+        assert "Alice Smith, Bob Jones" in src
+        assert "[2301.07041](https://arxiv.org/abs/2301.07041)" in src
+        assert "cs.AI, cs.LG" in src
+        assert "January 7, 2023" in src
+
+    def test_single_digit_day_has_no_leading_zero(self) -> None:
+        cell = build_front_matter_cell(_PAPER)
+        assert "January 07" not in cell.source
+
+    def test_doi_shown_when_present(self) -> None:
+        paper = _PAPER.model_copy(update={"doi": "10.1234/test"})
+        cell = build_front_matter_cell(paper)
+        assert "**DOI:** 10.1234/test" in cell.source
+
+    def test_journal_ref_shown_when_present(self) -> None:
+        paper = _PAPER.model_copy(update={"journal_ref": "Nature 2023"})
+        cell = build_front_matter_cell(paper)
+        assert "**Journal Ref:** Nature 2023" in cell.source
+
+    def test_doi_and_journal_ref_absent_when_none(self) -> None:
+        cell = build_front_matter_cell(_PAPER)
+        assert "DOI" not in cell.source
+        assert "Journal Ref" not in cell.source
+
+    def test_build_notebook_prepends_front_matter(self) -> None:
+        content = NotebookContent(
+            title="Test",
+            cells=[
+                NotebookCell(cell_type=CellType.CODE, source="x = 1"),
+            ],
+        )
+        nb = build_notebook(content, paper=_PAPER)
+
+        assert len(nb.cells) == 2
+        assert nb.cells[0].cell_type == "markdown"
+        assert "Attention Is All You Need" in nb.cells[0].source
+        assert nb.cells[1].cell_type == "code"
+
+    def test_no_front_matter_without_paper(self) -> None:
+        content = NotebookContent(
+            title="Test",
+            cells=[
+                NotebookCell(cell_type=CellType.CODE, source="x = 1"),
+            ],
+        )
+        nb = build_notebook(content)
+        assert len(nb.cells) == 1

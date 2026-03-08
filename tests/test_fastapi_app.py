@@ -1,12 +1,26 @@
 """Tests for the FastAPI application."""
 
 import json
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from httpx import ASGITransport, AsyncClient
 
 from stellabook.fastapi_app import app
+from stellabook.models import Author, Category, Paper
 from stellabook.notebook_models import CellType, NotebookCell, NotebookContent
+
+_MOCK_PAPER = Paper(
+    arxiv_id="2301.07041",
+    title="Test Paper",
+    summary="A test abstract.",
+    authors=[Author(name="Alice"), Author(name="Bob")],
+    categories=[Category(term="cs.AI")],
+    links=[],
+    published=datetime(2023, 1, 17, tzinfo=timezone.utc),
+    updated=datetime(2023, 1, 17, tzinfo=timezone.utc),
+    primary_category="cs.AI",
+)
 
 
 class TestHealthEndpoint:
@@ -29,7 +43,7 @@ class TestGenerateEndpoint:
                 NotebookCell(cell_type=CellType.CODE, source="x = 1"),
             ],
         )
-        mock_paper = AsyncMock()
+        mock_paper = _MOCK_PAPER
         mock_research = "## Background\nSome research."
         mock_figures: list[object] = []
 
@@ -71,7 +85,10 @@ class TestGenerateEndpoint:
 
         nb_data = json.loads(response.text)
         assert nb_data["nbformat"] == 4
-        assert len(nb_data["cells"]) == 2
+        # 3 cells: front matter + markdown + code
+        assert len(nb_data["cells"]) == 3
+        front_matter = "".join(nb_data["cells"][0]["source"])
+        assert "Test Paper" in front_matter
 
         mock_extract.assert_called_once_with(mock_paper)
         mock_research_fn.assert_called_once_with(
@@ -89,7 +106,7 @@ class TestGenerateEndpoint:
                 NotebookCell(cell_type=CellType.MARKDOWN, source="# Test"),
             ],
         )
-        mock_paper = AsyncMock()
+        mock_paper = _MOCK_PAPER
         mock_research = "## Background\nSome research."
         mock_figures: list[object] = []
 
