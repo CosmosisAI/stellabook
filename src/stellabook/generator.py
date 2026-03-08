@@ -85,6 +85,21 @@ present in the extracted image
 than to guess incorrectly
 """
 
+INTERACTIVE_NOTEBOOK_ADDENDUM = """
+
+Interactive widget guidelines:
+- Use ipywidgets to make key parameters explorable
+- Import widgets with `from ipywidgets import interact, FloatSlider, \
+IntSlider, Dropdown`
+- Decorate visualization functions with `@interact` and appropriate \
+widget types (FloatSlider for continuous params, IntSlider for \
+discrete, Dropdown for categorical choices)
+- Each interactive cell must be self-contained and runnable on its own
+- Add a final "Interactive Dashboard" section that combines the most \
+important tunable parameters into a single `@interact` call with \
+a multi-parameter visualization
+"""
+
 
 def _build_user_message(paper: Paper) -> str:
     """Format paper metadata into a user message for the AI model."""
@@ -141,15 +156,19 @@ async def generate_notebook_content(
     *,
     figures: list[Figure] | None = None,
     model: BaseChatModel | None = None,
+    interactive: bool = False,
 ) -> NotebookContent:
     """Generate notebook content for a paper using structured output."""
     if model is None:
         model = get_notebook_model()
+    system_prompt = NOTEBOOK_SYSTEM_PROMPT
+    if interactive:
+        system_prompt += INTERACTIVE_NOTEBOOK_ADDENDUM
     structured_model = model.with_structured_output(
         NotebookContent, include_raw=True
     )
     result = await structured_model.ainvoke([
-        SystemMessage(content=NOTEBOOK_SYSTEM_PROMPT),
+        SystemMessage(content=system_prompt),
         HumanMessage(content=_build_notebook_user_message(paper, research, figures)),
     ])
     assert isinstance(result, dict)

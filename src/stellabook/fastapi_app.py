@@ -44,7 +44,8 @@ async def generate(request: GenerateRequest) -> Response:
 
     research = await research_paper(paper, model=app.state.research_model)
     content = await generate_notebook_content(
-        paper, research, figures=figures, model=app.state.notebook_model
+        paper, research, figures=figures, model=app.state.notebook_model,
+        interactive=request.interactive,
     )
     nb = build_notebook(content, figures=figures)
     nb_json = notebook_to_json(nb)

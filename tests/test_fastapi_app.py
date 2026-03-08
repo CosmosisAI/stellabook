@@ -78,7 +78,57 @@ class TestGenerateEndpoint:
             mock_paper, model=mock_research_model
         )
         mock_gen.assert_called_once_with(
-            mock_paper, mock_research, figures=mock_figures, model=mock_notebook_model
+            mock_paper, mock_research, figures=mock_figures,
+            model=mock_notebook_model, interactive=False,
+        )
+
+    async def test_generate_passes_interactive_flag(self) -> None:
+        mock_content = NotebookContent(
+            title="Test Notebook",
+            cells=[
+                NotebookCell(cell_type=CellType.MARKDOWN, source="# Test"),
+            ],
+        )
+        mock_paper = AsyncMock()
+        mock_research = "## Background\nSome research."
+        mock_figures: list[object] = []
+
+        mock_research_model = MagicMock()
+        mock_notebook_model = MagicMock()
+        app.state.research_model = mock_research_model
+        app.state.notebook_model = mock_notebook_model
+
+        with (
+            patch("stellabook.fastapi_app.ArxivClient") as mock_arxiv_cls,
+            patch(
+                "stellabook.fastapi_app.extract_figures",
+                return_value=mock_figures,
+            ),
+            patch(
+                "stellabook.fastapi_app.research_paper",
+                return_value=mock_research,
+            ),
+            patch(
+                "stellabook.fastapi_app.generate_notebook_content",
+                return_value=mock_content,
+            ) as mock_gen,
+        ):
+            mock_arxiv = AsyncMock()
+            mock_arxiv.get_paper.return_value = mock_paper
+            mock_arxiv_cls.return_value.__aenter__ = AsyncMock(return_value=mock_arxiv)
+            mock_arxiv_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as ac:
+                response = await ac.post(
+                    "/generate",
+                    json={"arxiv_id": "2301.07041", "interactive": True},
+                )
+
+        assert response.status_code == 200
+        mock_gen.assert_called_once_with(
+            mock_paper, mock_research, figures=mock_figures,
+            model=mock_notebook_model, interactive=True,
         )
 
     async def test_generate_returns_404_for_unknown_paper(self) -> None:

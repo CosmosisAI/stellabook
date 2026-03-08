@@ -40,3 +40,4 @@ class GenerateRequest(BaseModel):
     """Request body for the /generate endpoint."""
 
     arxiv_id: str
+    interactive: bool = False
