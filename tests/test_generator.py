@@ -7,6 +7,8 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from stellabook.generator import (
+    INTERACTIVE_NOTEBOOK_ADDENDUM,
+    NOTEBOOK_SYSTEM_PROMPT,
     _build_notebook_user_message,
     _build_user_message,
     generate_notebook_content,
@@ -221,6 +223,72 @@ class TestGenerateNotebookContent:
 
         with pytest.raises(ValueError, match="Failed to parse notebook content"):
             await generate_notebook_content(paper, SAMPLE_RESEARCH, model=mock_model)
+
+    async def test_uses_base_prompt_when_not_interactive(self) -> None:
+        paper = _make_paper()
+        parsed = NotebookContent(
+            title="Generated Notebook",
+            cells=[
+                {"cell_type": "markdown", "source": "# Intro"},  # type: ignore[list-item]
+            ],
+        )
+
+        raw_message = AIMessage(content="")
+        raw_message.response_metadata = {"stop_reason": "end_turn"}
+
+        structured_model = AsyncMock()
+        structured_model.ainvoke.return_value = {
+            "raw": raw_message,
+            "parsed": parsed,
+            "parsing_error": None,
+        }
+
+        mock_model = MagicMock()
+        mock_model.with_structured_output.return_value = structured_model
+
+        await generate_notebook_content(
+            paper, SAMPLE_RESEARCH, model=mock_model, interactive=False
+        )
+
+        messages = structured_model.ainvoke.call_args.args[0]
+        system_content = messages[0].content
+        assert system_content == NOTEBOOK_SYSTEM_PROMPT
+        assert "ipywidgets" not in system_content
+        assert "@interact" not in system_content
+
+    async def test_appends_interactive_addendum(self) -> None:
+        paper = _make_paper()
+        parsed = NotebookContent(
+            title="Generated Notebook",
+            cells=[
+                {"cell_type": "markdown", "source": "# Intro"},  # type: ignore[list-item]
+            ],
+        )
+
+        raw_message = AIMessage(content="")
+        raw_message.response_metadata = {"stop_reason": "end_turn"}
+
+        structured_model = AsyncMock()
+        structured_model.ainvoke.return_value = {
+            "raw": raw_message,
+            "parsed": parsed,
+            "parsing_error": None,
+        }
+
+        mock_model = MagicMock()
+        mock_model.with_structured_output.return_value = structured_model
+
+        await generate_notebook_content(
+            paper, SAMPLE_RESEARCH, model=mock_model, interactive=True
+        )
+
+        messages = structured_model.ainvoke.call_args.args[0]
+        system_content = messages[0].content
+        assert system_content.startswith(NOTEBOOK_SYSTEM_PROMPT)
+        assert INTERACTIVE_NOTEBOOK_ADDENDUM in system_content
+        assert "ipywidgets" in system_content
+        assert "@interact" in system_content
+        assert "Interactive Dashboard" in system_content
 
     async def test_handles_latex_in_structured_output(self) -> None:
         """Structured output handles LaTeX escaping correctly."""

@@ -102,6 +102,15 @@ class TestExtractImports:
         ]
         assert extract_imports(cells) == set()
 
+    def test_detects_ipywidgets_import(self) -> None:
+        cells = [
+            NotebookCell(
+                cell_type=CellType.CODE,
+                source="from ipywidgets import interact",
+            ),
+        ]
+        assert "ipywidgets" in extract_imports(cells)
+
 
 class TestBuildInstallCell:
     def test_produces_pip_install_command(self) -> None:
