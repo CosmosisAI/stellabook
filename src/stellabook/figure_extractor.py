@@ -6,6 +6,7 @@ import math
 from typing import Any
 
 import httpx
+import logfire
 import pymupdf
 
 from stellabook.config import (
@@ -162,12 +163,15 @@ async def extract_figures(
         http_client = httpx.AsyncClient()
 
     try:
-        response = await http_client.get(pdf_url, follow_redirects=True)
-        response.raise_for_status()
-        pdf_bytes = response.content
+        with logfire.span("download PDF", arxiv_id=paper.arxiv_id):
+            response = await http_client.get(pdf_url, follow_redirects=True)
+            response.raise_for_status()
+            pdf_bytes = response.content
     except httpx.HTTPError:
         logger.warning(
-            "Failed to download PDF for paper %s", paper.arxiv_id, exc_info=True
+            "Failed to download PDF for paper %s",
+            paper.arxiv_id,
+            exc_info=True,
         )
         return []
     finally:
@@ -175,9 +179,16 @@ async def extract_figures(
             await http_client.aclose()
 
     try:
-        return _extract_figures_from_pdf(
-            pdf_bytes, min_dimension=min_dimension, max_count=max_count
-        )
+        with logfire.span(
+            "parse figures from PDF", arxiv_id=paper.arxiv_id
+        ) as parse_span:
+            figures = _extract_figures_from_pdf(
+                pdf_bytes,
+                min_dimension=min_dimension,
+                max_count=max_count,
+            )
+            parse_span.set_attribute("figure_count", len(figures))
+            return figures
     except Exception:
         logger.warning(
             "Failed to extract figures from PDF for paper %s",

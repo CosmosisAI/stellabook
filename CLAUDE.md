@@ -31,7 +31,8 @@ POST /generate (arxiv_id, interactive)
 - **`figure_extractor.py`** — Downloads paper PDFs and extracts/compresses embedded images
 - **`notebook_builder.py`** — Assembles the final Jupyter notebook from generated content, figures, and metadata
 - **`models.py`** / **`notebook_models.py`** — Pydantic models for arXiv data and notebook structure
-- **`fastapi_app.py`** — FastAPI server exposing the notebook generation pipeline as a REST API
+- **`observability.py`** — Logfire setup: configures tracing and instruments FastAPI. LangChain OTEL env vars are set in `config.py` before LangChain is imported
+- **`fastapi_app.py`** — FastAPI server exposing the notebook generation pipeline as a REST API. Each pipeline stage is wrapped in a `logfire.span()` for trace visibility
 
 ### Key Design Decisions
 
@@ -46,7 +47,7 @@ Tests use `pytest` with `pytest-asyncio` (auto mode) and `pytest-httpx`. HTTP ca
 
 ## Environment Variables
 
-Requires `ANTHROPIC_API_KEY` and `GOOGLE_API_KEY` (see `.env.example`).
+Requires `ANTHROPIC_API_KEY` and `GOOGLE_API_KEY` (see `.env.example`). `LOGFIRE_TOKEN` enables trace export to the Logfire dashboard (without it, spans are created but not exported). `LOGFIRE_ENVIRONMENT` sets the environment tag (defaults to `local`).
 
 ## Code Standards
 

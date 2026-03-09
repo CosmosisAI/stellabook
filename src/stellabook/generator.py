@@ -145,10 +145,12 @@ async def research_paper(
     """Analyze a paper in depth, returning markdown research."""
     if model is None:
         model = get_research_model()
-    response = await model.ainvoke([
-        SystemMessage(content=RESEARCH_SYSTEM_PROMPT),
-        HumanMessage(content=_build_user_message(paper)),
-    ])
+    response = await model.ainvoke(
+        [
+            SystemMessage(content=RESEARCH_SYSTEM_PROMPT),
+            HumanMessage(content=_build_user_message(paper)),
+        ]
+    )
     return cast(str, response.content)  # type: ignore[reportUnknownMemberType]
 
 
@@ -166,13 +168,15 @@ async def generate_notebook_content(
     system_prompt = NOTEBOOK_SYSTEM_PROMPT
     if interactive:
         system_prompt += INTERACTIVE_NOTEBOOK_ADDENDUM
-    structured_model = model.with_structured_output(
-        NotebookContent, include_raw=True
+    structured_model = model.with_structured_output(NotebookContent, include_raw=True)
+    result = await structured_model.ainvoke(
+        [
+            SystemMessage(content=system_prompt),
+            HumanMessage(
+                content=_build_notebook_user_message(paper, research, figures)
+            ),
+        ]
     )
-    result = await structured_model.ainvoke([
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=_build_notebook_user_message(paper, research, figures)),
-    ])
     assert isinstance(result, dict)
 
     if result["parsing_error"] is not None:
@@ -181,9 +185,7 @@ async def generate_notebook_content(
     metadata: dict[str, object] = result["raw"].response_metadata  # type: ignore[union-attr]
     stop_reason = metadata.get("stop_reason") or metadata.get("finish_reason")
     if stop_reason == "max_tokens":
-        raise ValueError(
-            "Notebook generation was truncated due to max_tokens limit"
-        )
+        raise ValueError("Notebook generation was truncated due to max_tokens limit")
 
     parsed = result["parsed"]
     assert isinstance(parsed, NotebookContent)

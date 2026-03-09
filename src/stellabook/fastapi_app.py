@@ -4,6 +4,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import logfire
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
@@ -14,12 +15,14 @@ from stellabook.figure_extractor import extract_figures
 from stellabook.generator import generate_notebook_content, research_paper
 from stellabook.notebook_builder import build_notebook, notebook_to_json
 from stellabook.notebook_models import GenerateRequest
+from stellabook.observability import configure_observability
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    configure_observability(app)
     app.state.research_model = get_research_model()
     app.state.notebook_model = get_notebook_model()
     yield
@@ -35,20 +38,38 @@ async def health() -> dict[str, str]:
 
 @app.post("/generate")
 async def generate(request: GenerateRequest) -> Response:
-    async with ArxivClient() as arxiv:
-        paper = await arxiv.get_paper(request.arxiv_id)
+    with logfire.span("fetch paper metadata", arxiv_id=request.arxiv_id):
+        async with ArxivClient() as arxiv:
+            paper = await arxiv.get_paper(request.arxiv_id)
     if paper is None:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    figures = await extract_figures(paper)
+    with logfire.span("extract figures", arxiv_id=paper.arxiv_id):
+        figures = await extract_figures(paper)
 
-    research = await research_paper(paper, model=app.state.research_model)
-    content = await generate_notebook_content(
-        paper, research, figures=figures, model=app.state.notebook_model,
+    with logfire.span("research paper", arxiv_id=paper.arxiv_id):
+        research = await research_paper(paper, model=app.state.research_model)
+
+    with logfire.span(
+        "generate notebook content",
+        arxiv_id=paper.arxiv_id,
         interactive=request.interactive,
-    )
-    nb = build_notebook(content, paper=paper, figures=figures)
-    nb_json = notebook_to_json(nb)
+    ):
+        content = await generate_notebook_content(
+            paper,
+            research,
+            figures=figures,
+            model=app.state.notebook_model,
+            interactive=request.interactive,
+        )
+
+    with logfire.span(
+        "build notebook",
+        arxiv_id=paper.arxiv_id,
+        cell_count=len(content.cells),
+    ):
+        nb = build_notebook(content, paper=paper, figures=figures)
+        nb_json = notebook_to_json(nb)
 
     filename = f"{request.arxiv_id.replace('/', '_')}.ipynb"
     return Response(
@@ -59,4 +80,9 @@ async def generate(request: GenerateRequest) -> Response:
 
 
 def main() -> None:
-    uvicorn.run("stellabook.fastapi_app:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "stellabook.fastapi_app:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+    )

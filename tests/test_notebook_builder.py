@@ -1,11 +1,11 @@
 """Tests for notebook_builder module."""
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import nbformat
 
-from stellabook.models import Author, Category, Paper, PaperLink
+from stellabook.models import Author, Category, Paper
 from stellabook.notebook_builder import (
     build_front_matter_cell,
     build_install_cell,
@@ -26,8 +26,8 @@ _PAPER = Paper(
     ],
     categories=[Category(term="cs.AI"), Category(term="cs.LG")],
     links=[],
-    published=datetime(2023, 1, 7, tzinfo=timezone.utc),
-    updated=datetime(2023, 1, 7, tzinfo=timezone.utc),
+    published=datetime(2023, 1, 7, tzinfo=UTC),
+    updated=datetime(2023, 1, 7, tzinfo=UTC),
     primary_category="cs.AI",
 )
 

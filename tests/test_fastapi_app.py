@@ -1,7 +1,7 @@
 """Tests for the FastAPI application."""
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from httpx import ASGITransport, AsyncClient
@@ -17,8 +17,8 @@ _MOCK_PAPER = Paper(
     authors=[Author(name="Alice"), Author(name="Bob")],
     categories=[Category(term="cs.AI")],
     links=[],
-    published=datetime(2023, 1, 17, tzinfo=timezone.utc),
-    updated=datetime(2023, 1, 17, tzinfo=timezone.utc),
+    published=datetime(2023, 1, 17, tzinfo=UTC),
+    updated=datetime(2023, 1, 17, tzinfo=UTC),
     primary_category="cs.AI",
 )
 
@@ -91,12 +91,13 @@ class TestGenerateEndpoint:
         assert "Test Paper" in front_matter
 
         mock_extract.assert_called_once_with(mock_paper)
-        mock_research_fn.assert_called_once_with(
-            mock_paper, model=mock_research_model
-        )
+        mock_research_fn.assert_called_once_with(mock_paper, model=mock_research_model)
         mock_gen.assert_called_once_with(
-            mock_paper, mock_research, figures=mock_figures,
-            model=mock_notebook_model, interactive=False,
+            mock_paper,
+            mock_research,
+            figures=mock_figures,
+            model=mock_notebook_model,
+            interactive=False,
         )
 
     async def test_generate_passes_interactive_flag(self) -> None:
@@ -144,8 +145,11 @@ class TestGenerateEndpoint:
 
         assert response.status_code == 200
         mock_gen.assert_called_once_with(
-            mock_paper, mock_research, figures=mock_figures,
-            model=mock_notebook_model, interactive=True,
+            mock_paper,
+            mock_research,
+            figures=mock_figures,
+            model=mock_notebook_model,
+            interactive=True,
         )
 
     async def test_generate_returns_404_for_unknown_paper(self) -> None:
