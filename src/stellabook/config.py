@@ -1,11 +1,20 @@
-"""Constants for the Stellabook arXiv client and notebook generation."""
+"""Central configuration: LLM providers, arXiv constraints, OTEL tracing."""
+
+import os
 
 from dotenv import load_dotenv
-from langchain_anthropic import ChatAnthropic
-from langchain_core.language_models import BaseChatModel
-from langchain_google_genai import ChatGoogleGenerativeAI
 
 load_dotenv()
+
+# LangChain OTEL tracing — set before any langchain import so that
+# LangChain picks up the OpenTelemetry exporter on first use.
+os.environ.setdefault("LANGSMITH_OTEL_ENABLED", "true")
+os.environ.setdefault("LANGSMITH_OTEL_ONLY", "true")
+os.environ.setdefault("LANGSMITH_TRACING", "true")
+
+from langchain_anthropic import ChatAnthropic  # noqa: E402
+from langchain_core.language_models import BaseChatModel  # noqa: E402
+from langchain_google_genai import ChatGoogleGenerativeAI  # noqa: E402
 
 ARXIV_API_BASE_URL = "https://export.arxiv.org/api/query"
 ARXIV_RATE_LIMIT_SECONDS = 3.0
