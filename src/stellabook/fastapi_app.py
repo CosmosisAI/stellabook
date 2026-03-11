@@ -1,5 +1,6 @@
 """Minimal FastAPI application for Stellabook."""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -11,7 +12,11 @@ from fastapi.responses import Response
 
 from stellabook.arxiv_client import ArxivClient
 from stellabook.config import get_notebook_model, get_research_model
-from stellabook.figure_extractor import extract_figures
+from stellabook.figure_extractor import (
+    download_pdf,
+    extract_figures,
+    extract_text_from_pdf,
+)
 from stellabook.generator import generate_notebook_content, research_paper
 from stellabook.notebook_builder import build_notebook, notebook_to_json
 from stellabook.notebook_models import GenerateRequest
@@ -44,11 +49,27 @@ async def generate(request: GenerateRequest) -> Response:
     if paper is None:
         raise HTTPException(status_code=404, detail="Paper not found")
 
+    pdf_bytes = await download_pdf(paper)
+
     with logfire.span("extract figures", arxiv_id=paper.arxiv_id):
-        figures = await extract_figures(paper)
+        figures = await extract_figures(paper, pdf_bytes=pdf_bytes)
+
+    paper_text: str | None = None
+    if pdf_bytes is not None:
+        try:
+            with logfire.span("extract text from PDF", arxiv_id=paper.arxiv_id):
+                paper_text = await asyncio.to_thread(extract_text_from_pdf, pdf_bytes)
+        except Exception:
+            logger.warning(
+                "Failed to extract text from PDF for paper %s",
+                paper.arxiv_id,
+                exc_info=True,
+            )
 
     with logfire.span("research paper", arxiv_id=paper.arxiv_id):
-        research = await research_paper(paper, model=app.state.research_model)
+        research = await research_paper(
+            paper, model=app.state.research_model, paper_text=paper_text
+        )
 
     with logfire.span(
         "generate notebook content",
@@ -61,6 +82,7 @@ async def generate(request: GenerateRequest) -> Response:
             figures=figures,
             model=app.state.notebook_model,
             interactive=request.interactive,
+            paper_text=paper_text,
         )
 
     with logfire.span(

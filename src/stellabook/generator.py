@@ -12,6 +12,11 @@ from stellabook.notebook_models import Figure, NotebookContent
 RESEARCH_SYSTEM_PROMPT = """\
 You are a research scientist. Analyze the given arXiv paper in depth.
 
+When the full paper text is provided, use it as your primary source \
+of information. Base all findings, insights, and takeaways directly \
+on the paper's content. Do not invent or fabricate results, methods, \
+or claims that are not present in the text.
+
 Write your analysis in markdown using the following sections:
 
 ## Background and Motivation
@@ -44,6 +49,11 @@ You are an expert science educator creating a Jupyter notebook. \
 You will receive:
 1. An arXiv paper's metadata
 2. A detailed research analysis of that paper
+3. Optionally, the full text of the paper
+
+When the full paper text is provided, ground all explanations and \
+code demonstrations in the actual paper content. Do not invent \
+findings or methods not present in the text.
 
 Use the research analysis to structure the notebook. The analysis \
 identifies the key concepts, insights, and suggests code \
@@ -103,11 +113,15 @@ a multi-parameter visualization
 """
 
 
-def _build_user_message(paper: Paper) -> str:
+def _build_user_message(
+    paper: Paper,
+    *,
+    paper_text: str | None = None,
+) -> str:
     """Format paper metadata into a user message for the AI model."""
     authors = ", ".join(a.name for a in paper.authors)
     categories = ", ".join(c.term for c in paper.categories)
-    return (
+    msg = (
         f"Title: {paper.title}\n"
         f"Authors: {authors}\n"
         f"Categories: {categories}\n"
@@ -115,15 +129,20 @@ def _build_user_message(paper: Paper) -> str:
         f"URL: {paper.abstract_url}\n\n"
         f"Abstract:\n{paper.summary}"
     )
+    if paper_text:
+        msg += f"\n\n---\n\nFull Paper Text:\n{paper_text}"
+    return msg
 
 
 def _build_notebook_user_message(
     paper: Paper,
     research: str,
     figures: list[Figure] | None = None,
+    *,
+    paper_text: str | None = None,
 ) -> str:
     """Format paper metadata and research analysis into a message."""
-    paper_section = _build_user_message(paper)
+    paper_section = _build_user_message(paper, paper_text=paper_text)
     msg = f"{paper_section}\n\n---\n\nResearch Analysis:\n{research}"
 
     if figures:
@@ -141,6 +160,7 @@ async def research_paper(
     paper: Paper,
     *,
     model: BaseChatModel | None = None,
+    paper_text: str | None = None,
 ) -> str:
     """Analyze a paper in depth, returning markdown research."""
     if model is None:
@@ -148,7 +168,7 @@ async def research_paper(
     response = await model.ainvoke(
         [
             SystemMessage(content=RESEARCH_SYSTEM_PROMPT),
-            HumanMessage(content=_build_user_message(paper)),
+            HumanMessage(content=_build_user_message(paper, paper_text=paper_text)),
         ]
     )
     return cast(str, response.content)  # type: ignore[reportUnknownMemberType]
@@ -161,6 +181,7 @@ async def generate_notebook_content(
     figures: list[Figure] | None = None,
     model: BaseChatModel | None = None,
     interactive: bool = False,
+    paper_text: str | None = None,
 ) -> NotebookContent:
     """Generate notebook content for a paper using structured output."""
     if model is None:
@@ -173,19 +194,21 @@ async def generate_notebook_content(
         [
             SystemMessage(content=system_prompt),
             HumanMessage(
-                content=_build_notebook_user_message(paper, research, figures)
+                content=_build_notebook_user_message(
+                    paper, research, figures, paper_text=paper_text
+                )
             ),
         ]
     )
     assert isinstance(result, dict)
 
-    if result["parsing_error"] is not None:
-        raise ValueError(f"Failed to parse notebook content: {result['parsing_error']}")
-
     metadata: dict[str, object] = result["raw"].response_metadata  # type: ignore[union-attr]
     stop_reason = metadata.get("stop_reason") or metadata.get("finish_reason")
     if stop_reason == "max_tokens":
         raise ValueError("Notebook generation was truncated due to max_tokens limit")
+
+    if result["parsing_error"] is not None:
+        raise ValueError(f"Failed to parse notebook content: {result['parsing_error']}")
 
     parsed = result["parsed"]
     assert isinstance(parsed, NotebookContent)

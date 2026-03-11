@@ -71,6 +71,19 @@ class TestBuildUserMessage:
         assert "This is a test abstract." in msg
         assert "https://arxiv.org/abs/2301.07041" in msg
 
+    def test_includes_paper_text_when_provided(self) -> None:
+        paper = _make_paper()
+        msg = _build_user_message(paper, paper_text="Full text here.")
+
+        assert "Full Paper Text:" in msg
+        assert "Full text here." in msg
+
+    def test_omits_paper_text_when_none(self) -> None:
+        paper = _make_paper()
+        msg = _build_user_message(paper, paper_text=None)
+
+        assert "Full Paper Text:" not in msg
+
 
 class TestBuildNotebookUserMessage:
     def test_contains_research_fields(self) -> None:
@@ -121,6 +134,15 @@ class TestBuildNotebookUserMessage:
 
         assert "Available Figures:" not in msg
 
+    def test_forwards_paper_text(self) -> None:
+        paper = _make_paper()
+        msg = _build_notebook_user_message(
+            paper, SAMPLE_RESEARCH, paper_text="Full text here."
+        )
+
+        assert "Full Paper Text:" in msg
+        assert "Full text here." in msg
+
 
 class TestResearchPaper:
     async def test_calls_model_and_returns_markdown(self) -> None:
@@ -138,6 +160,18 @@ class TestResearchPaper:
 
         messages = mock_model.ainvoke.call_args.args[0]
         assert "Test Paper Title" in messages[1].content
+
+    async def test_passes_paper_text_to_message(self) -> None:
+        paper = _make_paper()
+
+        mock_model = AsyncMock()
+        mock_model.ainvoke.return_value = AIMessage(content=SAMPLE_RESEARCH)
+
+        await research_paper(paper, model=mock_model, paper_text="Full text.")
+
+        messages = mock_model.ainvoke.call_args.args[0]
+        assert "Full Paper Text:" in messages[1].content
+        assert "Full text." in messages[1].content
 
 
 class TestGenerateNotebookContent:
@@ -197,6 +231,27 @@ class TestGenerateNotebookContent:
             "raw": raw_message,
             "parsed": parsed,
             "parsing_error": None,
+        }
+
+        mock_model = MagicMock()
+        mock_model.with_structured_output.return_value = structured_model
+
+        with pytest.raises(ValueError, match="truncated"):
+            await generate_notebook_content(paper, SAMPLE_RESEARCH, model=mock_model)
+
+    async def test_raises_max_tokens_over_parsing_error(self) -> None:
+        """When max_tokens causes truncation that also triggers a parsing error,
+        the max_tokens error takes priority for a clearer message."""
+        paper = _make_paper()
+
+        raw_message = AIMessage(content="")
+        raw_message.response_metadata = {"stop_reason": "max_tokens"}
+
+        structured_model = AsyncMock()
+        structured_model.ainvoke.return_value = {
+            "raw": raw_message,
+            "parsed": None,
+            "parsing_error": "1 validation error for NotebookContent\ncells\n  Field required",
         }
 
         mock_model = MagicMock()
@@ -322,3 +377,33 @@ class TestGenerateNotebookContent:
 
         assert "\\alpha" in result.cells[0].source
         assert "\\beta" in result.cells[0].source
+
+    async def test_passes_paper_text_to_message(self) -> None:
+        paper = _make_paper()
+        parsed = NotebookContent(
+            title="Generated Notebook",
+            cells=[
+                {"cell_type": "markdown", "source": "# Intro"},  # type: ignore[list-item]
+            ],
+        )
+
+        raw_message = AIMessage(content="")
+        raw_message.response_metadata = {"stop_reason": "end_turn"}
+
+        structured_model = AsyncMock()
+        structured_model.ainvoke.return_value = {
+            "raw": raw_message,
+            "parsed": parsed,
+            "parsing_error": None,
+        }
+
+        mock_model = MagicMock()
+        mock_model.with_structured_output.return_value = structured_model
+
+        await generate_notebook_content(
+            paper, SAMPLE_RESEARCH, model=mock_model, paper_text="Full text."
+        )
+
+        messages = structured_model.ainvoke.call_args.args[0]
+        assert "Full Paper Text:" in messages[1].content
+        assert "Full text." in messages[1].content
