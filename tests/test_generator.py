@@ -14,7 +14,7 @@ from stellabook.generator import (
     generate_notebook_content,
     research_paper,
 )
-from stellabook.models import Author, Category, Paper
+from stellabook.models import Author, Category, Paper, PipelineContext
 from stellabook.notebook_models import CellType, Figure, NotebookContent
 
 
@@ -29,6 +29,25 @@ def _make_paper() -> Paper:
         published=datetime(2023, 1, 17, tzinfo=UTC),
         updated=datetime(2023, 1, 17, tzinfo=UTC),
         primary_category="cs.AI",
+    )
+
+
+def _make_ctx(
+    paper: Paper | None = None,
+    *,
+    research_model: object | None = None,
+    notebook_model: object | None = None,
+    paper_text: str | None = None,
+    figures: list[Figure] | None = None,
+    interactive: bool = False,
+) -> PipelineContext:
+    return PipelineContext(
+        paper=paper or _make_paper(),
+        research_model=research_model or MagicMock(),  # type: ignore[arg-type]
+        notebook_model=notebook_model or MagicMock(),  # type: ignore[arg-type]
+        paper_text=paper_text,
+        figures=figures,
+        interactive=interactive,
     )
 
 
@@ -60,8 +79,8 @@ Apply to domain D.
 
 class TestBuildUserMessage:
     def test_contains_paper_fields(self) -> None:
-        paper = _make_paper()
-        msg = _build_user_message(paper)
+        ctx = _make_ctx()
+        msg = _build_user_message(ctx)
 
         assert "Test Paper Title" in msg
         assert "Alice" in msg
@@ -72,23 +91,23 @@ class TestBuildUserMessage:
         assert "https://arxiv.org/abs/2301.07041" in msg
 
     def test_includes_paper_text_when_provided(self) -> None:
-        paper = _make_paper()
-        msg = _build_user_message(paper, paper_text="Full text here.")
+        ctx = _make_ctx(paper_text="Full text here.")
+        msg = _build_user_message(ctx)
 
         assert "Full Paper Text:" in msg
         assert "Full text here." in msg
 
     def test_omits_paper_text_when_none(self) -> None:
-        paper = _make_paper()
-        msg = _build_user_message(paper, paper_text=None)
+        ctx = _make_ctx(paper_text=None)
+        msg = _build_user_message(ctx)
 
         assert "Full Paper Text:" not in msg
 
 
 class TestBuildNotebookUserMessage:
     def test_contains_research_fields(self) -> None:
-        paper = _make_paper()
-        msg = _build_notebook_user_message(paper, SAMPLE_RESEARCH)
+        ctx = _make_ctx()
+        msg = _build_notebook_user_message(ctx, SAMPLE_RESEARCH)
 
         assert "Test Paper Title" in msg
         assert "Research Analysis:" in msg
@@ -99,7 +118,6 @@ class TestBuildNotebookUserMessage:
         assert "Demo attention mechanism" in msg
 
     def test_includes_figures_section_when_provided(self) -> None:
-        paper = _make_paper()
         figures = [
             Figure(
                 label="figure_0",
@@ -116,29 +134,28 @@ class TestBuildNotebookUserMessage:
                 height=300,
             ),
         ]
-        msg = _build_notebook_user_message(paper, SAMPLE_RESEARCH, figures)
+        ctx = _make_ctx(figures=figures)
+        msg = _build_notebook_user_message(ctx, SAMPLE_RESEARCH)
 
         assert "Available Figures:" in msg
         assert "figure_0: page 1, 200x150 pixels" in msg
         assert "figure_1: page 3, 400x300 pixels" in msg
 
     def test_no_figures_section_when_empty(self) -> None:
-        paper = _make_paper()
-        msg = _build_notebook_user_message(paper, SAMPLE_RESEARCH, [])
+        ctx = _make_ctx(figures=[])
+        msg = _build_notebook_user_message(ctx, SAMPLE_RESEARCH)
 
         assert "Available Figures:" not in msg
 
     def test_no_figures_section_when_none(self) -> None:
-        paper = _make_paper()
-        msg = _build_notebook_user_message(paper, SAMPLE_RESEARCH, None)
+        ctx = _make_ctx(figures=None)
+        msg = _build_notebook_user_message(ctx, SAMPLE_RESEARCH)
 
         assert "Available Figures:" not in msg
 
     def test_forwards_paper_text(self) -> None:
-        paper = _make_paper()
-        msg = _build_notebook_user_message(
-            paper, SAMPLE_RESEARCH, paper_text="Full text here."
-        )
+        ctx = _make_ctx(paper_text="Full text here.")
+        msg = _build_notebook_user_message(ctx, SAMPLE_RESEARCH)
 
         assert "Full Paper Text:" in msg
         assert "Full text here." in msg
@@ -146,12 +163,11 @@ class TestBuildNotebookUserMessage:
 
 class TestResearchPaper:
     async def test_calls_model_and_returns_markdown(self) -> None:
-        paper = _make_paper()
-
         mock_model = AsyncMock()
         mock_model.ainvoke.return_value = AIMessage(content=SAMPLE_RESEARCH)
+        ctx = _make_ctx(research_model=mock_model)
 
-        result = await research_paper(paper, model=mock_model)
+        result = await research_paper(ctx)
 
         assert isinstance(result, str)
         assert "Addresses gap in X." in result
@@ -162,12 +178,11 @@ class TestResearchPaper:
         assert "Test Paper Title" in messages[1].content
 
     async def test_passes_paper_text_to_message(self) -> None:
-        paper = _make_paper()
-
         mock_model = AsyncMock()
         mock_model.ainvoke.return_value = AIMessage(content=SAMPLE_RESEARCH)
+        ctx = _make_ctx(research_model=mock_model, paper_text="Full text.")
 
-        await research_paper(paper, model=mock_model, paper_text="Full text.")
+        await research_paper(ctx)
 
         messages = mock_model.ainvoke.call_args.args[0]
         assert "Full Paper Text:" in messages[1].content
@@ -176,7 +191,6 @@ class TestResearchPaper:
 
 class TestGenerateNotebookContent:
     async def test_calls_model_with_structured_output(self) -> None:
-        paper = _make_paper()
         parsed = NotebookContent(
             title="Generated Notebook",
             cells=[
@@ -198,9 +212,8 @@ class TestGenerateNotebookContent:
         mock_model = MagicMock()
         mock_model.with_structured_output.return_value = structured_model
 
-        result = await generate_notebook_content(
-            paper, SAMPLE_RESEARCH, model=mock_model
-        )
+        ctx = _make_ctx(notebook_model=mock_model)
+        result = await generate_notebook_content(ctx, SAMPLE_RESEARCH)
 
         assert result.title == "Generated Notebook"
         assert len(result.cells) == 2
@@ -217,7 +230,6 @@ class TestGenerateNotebookContent:
         assert "Addresses gap in X." in messages[1].content
 
     async def test_raises_on_max_tokens(self) -> None:
-        paper = _make_paper()
         parsed = NotebookContent(
             title="Partial",
             cells=[{"cell_type": "markdown", "source": "# Partial"}],  # type: ignore[list-item]
@@ -236,14 +248,13 @@ class TestGenerateNotebookContent:
         mock_model = MagicMock()
         mock_model.with_structured_output.return_value = structured_model
 
+        ctx = _make_ctx(notebook_model=mock_model)
         with pytest.raises(ValueError, match="truncated"):
-            await generate_notebook_content(paper, SAMPLE_RESEARCH, model=mock_model)
+            await generate_notebook_content(ctx, SAMPLE_RESEARCH)
 
     async def test_raises_max_tokens_over_parsing_error(self) -> None:
         """When max_tokens causes truncation that also triggers a parsing error,
         the max_tokens error takes priority for a clearer message."""
-        paper = _make_paper()
-
         raw_message = AIMessage(content="")
         raw_message.response_metadata = {"stop_reason": "max_tokens"}
 
@@ -251,18 +262,19 @@ class TestGenerateNotebookContent:
         structured_model.ainvoke.return_value = {
             "raw": raw_message,
             "parsed": None,
-            "parsing_error": "1 validation error for NotebookContent\ncells\n  Field required",
+            "parsing_error": (
+                "1 validation error for NotebookContent\ncells\n  Field required"
+            ),
         }
 
         mock_model = MagicMock()
         mock_model.with_structured_output.return_value = structured_model
 
+        ctx = _make_ctx(notebook_model=mock_model)
         with pytest.raises(ValueError, match="truncated"):
-            await generate_notebook_content(paper, SAMPLE_RESEARCH, model=mock_model)
+            await generate_notebook_content(ctx, SAMPLE_RESEARCH)
 
     async def test_raises_on_parsing_error(self) -> None:
-        paper = _make_paper()
-
         raw_message = AIMessage(content="")
         raw_message.response_metadata = {"stop_reason": "end_turn"}
 
@@ -276,11 +288,11 @@ class TestGenerateNotebookContent:
         mock_model = MagicMock()
         mock_model.with_structured_output.return_value = structured_model
 
+        ctx = _make_ctx(notebook_model=mock_model)
         with pytest.raises(ValueError, match="Failed to parse notebook content"):
-            await generate_notebook_content(paper, SAMPLE_RESEARCH, model=mock_model)
+            await generate_notebook_content(ctx, SAMPLE_RESEARCH)
 
     async def test_uses_base_prompt_when_not_interactive(self) -> None:
-        paper = _make_paper()
         parsed = NotebookContent(
             title="Generated Notebook",
             cells=[
@@ -301,9 +313,8 @@ class TestGenerateNotebookContent:
         mock_model = MagicMock()
         mock_model.with_structured_output.return_value = structured_model
 
-        await generate_notebook_content(
-            paper, SAMPLE_RESEARCH, model=mock_model, interactive=False
-        )
+        ctx = _make_ctx(notebook_model=mock_model, interactive=False)
+        await generate_notebook_content(ctx, SAMPLE_RESEARCH)
 
         messages = structured_model.ainvoke.call_args.args[0]
         system_content = messages[0].content
@@ -312,7 +323,6 @@ class TestGenerateNotebookContent:
         assert "@interact" not in system_content
 
     async def test_appends_interactive_addendum(self) -> None:
-        paper = _make_paper()
         parsed = NotebookContent(
             title="Generated Notebook",
             cells=[
@@ -333,9 +343,8 @@ class TestGenerateNotebookContent:
         mock_model = MagicMock()
         mock_model.with_structured_output.return_value = structured_model
 
-        await generate_notebook_content(
-            paper, SAMPLE_RESEARCH, model=mock_model, interactive=True
-        )
+        ctx = _make_ctx(notebook_model=mock_model, interactive=True)
+        await generate_notebook_content(ctx, SAMPLE_RESEARCH)
 
         messages = structured_model.ainvoke.call_args.args[0]
         system_content = messages[0].content
@@ -347,7 +356,6 @@ class TestGenerateNotebookContent:
 
     async def test_handles_latex_in_structured_output(self) -> None:
         """Structured output handles LaTeX escaping correctly."""
-        paper = _make_paper()
         parsed = NotebookContent(
             title="Math Notebook",
             cells=[
@@ -371,15 +379,13 @@ class TestGenerateNotebookContent:
         mock_model = MagicMock()
         mock_model.with_structured_output.return_value = structured_model
 
-        result = await generate_notebook_content(
-            paper, SAMPLE_RESEARCH, model=mock_model
-        )
+        ctx = _make_ctx(notebook_model=mock_model)
+        result = await generate_notebook_content(ctx, SAMPLE_RESEARCH)
 
         assert "\\alpha" in result.cells[0].source
         assert "\\beta" in result.cells[0].source
 
     async def test_passes_paper_text_to_message(self) -> None:
-        paper = _make_paper()
         parsed = NotebookContent(
             title="Generated Notebook",
             cells=[
@@ -400,9 +406,8 @@ class TestGenerateNotebookContent:
         mock_model = MagicMock()
         mock_model.with_structured_output.return_value = structured_model
 
-        await generate_notebook_content(
-            paper, SAMPLE_RESEARCH, model=mock_model, paper_text="Full text."
-        )
+        ctx = _make_ctx(notebook_model=mock_model, paper_text="Full text.")
+        await generate_notebook_content(ctx, SAMPLE_RESEARCH)
 
         messages = structured_model.ainvoke.call_args.args[0]
         assert "Full Paper Text:" in messages[1].content
