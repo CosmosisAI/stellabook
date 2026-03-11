@@ -12,15 +12,15 @@ from fastapi.responses import Response
 
 from stellabook.arxiv_client import ArxivClient
 from stellabook.config import get_notebook_model, get_research_model
-from stellabook.figure_extractor import (
-    download_pdf,
-    extract_figures,
-    extract_text_from_pdf,
-)
 from stellabook.generator import generate_notebook_content, research_paper
 from stellabook.notebook_builder import build_notebook, notebook_to_json
 from stellabook.notebook_models import GenerateRequest
 from stellabook.observability import configure_observability
+from stellabook.pdf import (
+    download_pdf,
+    extract_figures,
+    extract_text_from_pdf,
+)
 
 logger = logging.getLogger(__name__)
 

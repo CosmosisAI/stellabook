@@ -1,4 +1,4 @@
-"""Tests for the figure_extractor module."""
+"""Tests for the pdf module."""
 
 import base64
 from unittest.mock import AsyncMock
@@ -7,7 +7,8 @@ import httpx
 import pymupdf
 import pytest
 
-from stellabook.figure_extractor import (
+from stellabook.models import Author, Category, Paper, PaperLink
+from stellabook.pdf import (
     _extract_figures_from_pdf,
     _scale_image,
     _strip_sections,
@@ -16,7 +17,6 @@ from stellabook.figure_extractor import (
     extract_figures,
     extract_text_from_pdf,
 )
-from stellabook.models import Author, Category, Paper, PaperLink
 
 
 def _make_test_pdf_with_text(text: str = "Hello world") -> bytes:

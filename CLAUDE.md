@@ -17,7 +17,7 @@ All commands use `uv` as the package manager and `just` as the task runner. See 
 ```
 POST /generate (arxiv_id, interactive)
   → arxiv_client: fetch paper metadata (Atom XML)
-  → figure_extractor: download PDF, extract/compress images
+  → pdf: download PDF, extract text, extract/compress images
   → generator: analyze paper and generate structured notebook content via LLMs
   → notebook_builder.build_notebook(): assemble .ipynb with figures, imports
   → return notebook file
@@ -28,7 +28,7 @@ POST /generate (arxiv_id, interactive)
 - **`config.py`** — Central configuration: LLM provider setup, arXiv constraints, figure limits
 - **`arxiv_client.py`** — Async arXiv API client with rate limiting and secure XML parsing
 - **`generator.py`** — LLM-driven steps in the notebook generation pipeline, each using a different provider. Contains the system prompts
-- **`figure_extractor.py`** — Downloads paper PDFs and extracts/compresses embedded images
+- **`pdf.py`** — Downloads paper PDFs, extracts text (with section stripping and truncation), and extracts/compresses embedded images
 - **`notebook_builder.py`** — Assembles the final Jupyter notebook from generated content, figures, and metadata
 - **`models.py`** / **`notebook_models.py`** — Pydantic models for arXiv data and notebook structure
 - **`observability.py`** — Logfire setup: configures tracing and instruments FastAPI. LangChain OTEL env vars are set in `config.py` before LangChain is imported
