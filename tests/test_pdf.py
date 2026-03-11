@@ -348,6 +348,19 @@ class TestStripSections:
         assert "Sub-references" not in result
         assert "Conclusion" in result
 
+    def test_adjacent_stripped_sections(self) -> None:
+        text = (
+            "# Intro\nBody.\n\n"
+            "## References\n[1] Foo.\n\n"
+            "## Acknowledgments\nThanks.\n\n"
+            "## Conclusion\nDone."
+        )
+        result = _strip_sections(text)
+        assert "Foo" not in result
+        assert "Thanks" not in result
+        assert "Body." in result
+        assert "Conclusion" in result
+
     def test_custom_names(self) -> None:
         text = "# Intro\nBody.\n\n## Appendix\nExtra.\n\n## Conclusion\nDone."
         result = _strip_sections(text, frozenset({"appendix"}))
@@ -370,6 +383,12 @@ class TestTruncateAtSectionBoundary:
         text = "No headings here, just a long block of plain text."
         result = _truncate_at_section_boundary(text, max_chars=20)
         assert len(result) == 20
+
+    def test_cuts_at_bold_heading(self) -> None:
+        text = "**Intro**\nFirst.\n\n**Methods**\nSecond.\n\n**Results**\nThird."
+        result = _truncate_at_section_boundary(text, max_chars=30)
+        assert "Intro" in result
+        assert "Results" not in result
 
     def test_preserves_complete_sections(self) -> None:
         sec1 = "# Intro\nFirst section content."
