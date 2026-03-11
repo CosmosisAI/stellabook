@@ -17,6 +17,7 @@ dependencies = [
     "nbformat>=5.10",
     "black",
     "pymupdf",
+    "pymupdf4llm",
     "logfire[fastapi]",
 ]
 
