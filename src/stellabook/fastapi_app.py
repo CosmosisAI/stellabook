@@ -13,6 +13,7 @@ from fastapi.responses import Response
 from stellabook.arxiv_client import ArxivClient
 from stellabook.config import get_notebook_model, get_research_model
 from stellabook.generator import generate_notebook_content, research_paper
+from stellabook.models import PipelineContext
 from stellabook.notebook_builder import build_notebook, notebook_to_json
 from stellabook.notebook_models import GenerateRequest
 from stellabook.observability import configure_observability
@@ -66,31 +67,31 @@ async def generate(request: GenerateRequest) -> Response:
                 exc_info=True,
             )
 
+    ctx = PipelineContext(
+        paper=paper,
+        research_model=app.state.research_model,
+        notebook_model=app.state.notebook_model,
+        paper_text=paper_text,
+        figures=figures,
+        interactive=request.interactive,
+    )
+
     with logfire.span("research paper", arxiv_id=paper.arxiv_id):
-        research = await research_paper(
-            paper, model=app.state.research_model, paper_text=paper_text
-        )
+        research = await research_paper(ctx)
 
     with logfire.span(
         "generate notebook content",
         arxiv_id=paper.arxiv_id,
         interactive=request.interactive,
     ):
-        content = await generate_notebook_content(
-            paper,
-            research,
-            figures=figures,
-            model=app.state.notebook_model,
-            interactive=request.interactive,
-            paper_text=paper_text,
-        )
+        content = await generate_notebook_content(ctx, research)
 
     with logfire.span(
         "build notebook",
         arxiv_id=paper.arxiv_id,
         cell_count=len(content.cells),
     ):
-        nb = build_notebook(content, paper=paper, figures=figures)
+        nb = build_notebook(content, paper=ctx.paper, figures=ctx.figures)
         nb_json = notebook_to_json(nb)
 
     filename = f"{request.arxiv_id.replace('/', '_')}.ipynb"

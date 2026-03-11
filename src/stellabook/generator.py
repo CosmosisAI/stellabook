@@ -2,12 +2,10 @@
 
 from typing import cast
 
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from stellabook.config import get_notebook_model, get_research_model
-from stellabook.models import Paper
-from stellabook.notebook_models import Figure, NotebookContent
+from stellabook.models import PipelineContext
+from stellabook.notebook_models import NotebookContent
 
 RESEARCH_SYSTEM_PROMPT = """\
 You are a research scientist. Analyze the given arXiv paper in depth.
@@ -113,12 +111,9 @@ a multi-parameter visualization
 """
 
 
-def _build_user_message(
-    paper: Paper,
-    *,
-    paper_text: str | None = None,
-) -> str:
+def _build_user_message(ctx: PipelineContext) -> str:
     """Format paper metadata into a user message for the AI model."""
+    paper = ctx.paper
     authors = ", ".join(a.name for a in paper.authors)
     categories = ", ".join(c.term for c in paper.categories)
     msg = (
@@ -129,25 +124,19 @@ def _build_user_message(
         f"URL: {paper.abstract_url}\n\n"
         f"Abstract:\n{paper.summary}"
     )
-    if paper_text:
-        msg += f"\n\n---\n\nFull Paper Text:\n{paper_text}"
+    if ctx.paper_text:
+        msg += f"\n\n---\n\nFull Paper Text:\n{ctx.paper_text}"
     return msg
 
 
-def _build_notebook_user_message(
-    paper: Paper,
-    research: str,
-    figures: list[Figure] | None = None,
-    *,
-    paper_text: str | None = None,
-) -> str:
+def _build_notebook_user_message(ctx: PipelineContext, research: str) -> str:
     """Format paper metadata and research analysis into a message."""
-    paper_section = _build_user_message(paper, paper_text=paper_text)
+    paper_section = _build_user_message(ctx)
     msg = f"{paper_section}\n\n---\n\nResearch Analysis:\n{research}"
 
-    if figures:
+    if ctx.figures:
         msg += "\n\n---\n\nAvailable Figures:\n"
-        for fig in figures:
+        for fig in ctx.figures:
             msg += (
                 f"- {fig.label}: page {fig.page_number}, "
                 f"{fig.width}x{fig.height} pixels\n"
@@ -156,48 +145,32 @@ def _build_notebook_user_message(
     return msg
 
 
-async def research_paper(
-    paper: Paper,
-    *,
-    model: BaseChatModel | None = None,
-    paper_text: str | None = None,
-) -> str:
+async def research_paper(ctx: PipelineContext) -> str:
     """Analyze a paper in depth, returning markdown research."""
-    if model is None:
-        model = get_research_model()
-    response = await model.ainvoke(
+    response = await ctx.research_model.ainvoke(
         [
             SystemMessage(content=RESEARCH_SYSTEM_PROMPT),
-            HumanMessage(content=_build_user_message(paper, paper_text=paper_text)),
+            HumanMessage(content=_build_user_message(ctx)),
         ]
     )
     return cast(str, response.content)  # type: ignore[reportUnknownMemberType]
 
 
 async def generate_notebook_content(
-    paper: Paper,
+    ctx: PipelineContext,
     research: str,
-    *,
-    figures: list[Figure] | None = None,
-    model: BaseChatModel | None = None,
-    interactive: bool = False,
-    paper_text: str | None = None,
 ) -> NotebookContent:
     """Generate notebook content for a paper using structured output."""
-    if model is None:
-        model = get_notebook_model()
     system_prompt = NOTEBOOK_SYSTEM_PROMPT
-    if interactive:
+    if ctx.interactive:
         system_prompt += INTERACTIVE_NOTEBOOK_ADDENDUM
-    structured_model = model.with_structured_output(NotebookContent, include_raw=True)
+    structured_model = ctx.notebook_model.with_structured_output(
+        NotebookContent, include_raw=True
+    )
     result = await structured_model.ainvoke(
         [
             SystemMessage(content=system_prompt),
-            HumanMessage(
-                content=_build_notebook_user_message(
-                    paper, research, figures, paper_text=paper_text
-                )
-            ),
+            HumanMessage(content=_build_notebook_user_message(ctx, research)),
         ]
     )
     assert isinstance(result, dict)

@@ -1,8 +1,17 @@
 """Pydantic models for arXiv paper data."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from langchain_core.language_models import BaseChatModel
+
+    from stellabook.notebook_models import Figure
 
 
 class Author(BaseModel):
@@ -64,3 +73,15 @@ class SearchResult(BaseModel):
     start_index: int
     items_per_page: int
     papers: list[Paper]
+
+
+@dataclass(frozen=True)
+class PipelineContext:
+    """Carries pipeline-level state through the notebook generation chain."""
+
+    paper: Paper
+    research_model: BaseChatModel
+    notebook_model: BaseChatModel
+    paper_text: str | None = None
+    figures: list[Figure] | None = None
+    interactive: bool = False

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import ASGITransport, AsyncClient
 
 from stellabook.fastapi_app import app
-from stellabook.models import Author, Category, Paper
+from stellabook.models import Author, Category, Paper, PipelineContext
 from stellabook.notebook_models import CellType, NotebookCell, NotebookContent
 
 _MOCK_PAPER = Paper(
@@ -103,17 +103,17 @@ class TestGenerateEndpoint:
         mock_download.assert_called_once_with(mock_paper)
         mock_extract.assert_called_once_with(mock_paper, pdf_bytes=mock_pdf_bytes)
         mock_extract_text.assert_called_once_with(mock_pdf_bytes)
-        mock_research_fn.assert_called_once_with(
-            mock_paper, model=mock_research_model, paper_text=mock_paper_text
-        )
-        mock_gen.assert_called_once_with(
-            mock_paper,
-            mock_research,
-            figures=mock_figures,
-            model=mock_notebook_model,
-            interactive=False,
+
+        expected_ctx = PipelineContext(
+            paper=mock_paper,
+            research_model=mock_research_model,
+            notebook_model=mock_notebook_model,
             paper_text=mock_paper_text,
+            figures=mock_figures,  # type: ignore[arg-type]
+            interactive=False,
         )
+        mock_research_fn.assert_called_once_with(expected_ctx)
+        mock_gen.assert_called_once_with(expected_ctx, mock_research)
 
     async def test_generate_passes_interactive_flag(self) -> None:
         mock_content = NotebookContent(
@@ -169,14 +169,15 @@ class TestGenerateEndpoint:
                 )
 
         assert response.status_code == 200
-        mock_gen.assert_called_once_with(
-            mock_paper,
-            mock_research,
-            figures=mock_figures,
-            model=mock_notebook_model,
-            interactive=True,
+        expected_ctx = PipelineContext(
+            paper=mock_paper,
+            research_model=mock_research_model,
+            notebook_model=mock_notebook_model,
             paper_text=mock_paper_text,
+            figures=mock_figures,  # type: ignore[arg-type]
+            interactive=True,
         )
+        mock_gen.assert_called_once_with(expected_ctx, mock_research)
 
     async def test_generate_returns_404_for_unknown_paper(self) -> None:
         with patch("stellabook.fastapi_app.ArxivClient") as mock_arxiv_cls:
@@ -248,17 +249,16 @@ class TestGenerateEndpoint:
                 )
 
         assert response.status_code == 200
-        mock_research_fn.assert_called_once_with(
-            mock_paper, model=mock_research_model, paper_text=None
-        )
-        mock_gen.assert_called_once_with(
-            mock_paper,
-            mock_research,
-            figures=mock_figures,
-            model=mock_notebook_model,
-            interactive=False,
+        expected_ctx = PipelineContext(
+            paper=mock_paper,
+            research_model=mock_research_model,
+            notebook_model=mock_notebook_model,
             paper_text=None,
+            figures=mock_figures,  # type: ignore[arg-type]
+            interactive=False,
         )
+        mock_research_fn.assert_called_once_with(expected_ctx)
+        mock_gen.assert_called_once_with(expected_ctx, mock_research)
 
     async def test_generate_skips_text_extraction_when_no_pdf(self) -> None:
         mock_content = NotebookContent(
@@ -312,14 +312,13 @@ class TestGenerateEndpoint:
 
         assert response.status_code == 200
         mock_extract_text.assert_not_called()
-        mock_research_fn.assert_called_once_with(
-            mock_paper, model=mock_research_model, paper_text=None
-        )
-        mock_gen.assert_called_once_with(
-            mock_paper,
-            mock_research,
-            figures=mock_figures,
-            model=mock_notebook_model,
-            interactive=False,
+        expected_ctx = PipelineContext(
+            paper=mock_paper,
+            research_model=mock_research_model,
+            notebook_model=mock_notebook_model,
             paper_text=None,
+            figures=mock_figures,  # type: ignore[arg-type]
+            interactive=False,
         )
+        mock_research_fn.assert_called_once_with(expected_ctx)
+        mock_gen.assert_called_once_with(expected_ctx, mock_research)
