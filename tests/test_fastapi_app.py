@@ -8,7 +8,7 @@ from httpx import ASGITransport, AsyncClient
 
 from stellabook.fastapi_app import app
 from stellabook.models import Author, Category, Paper, PipelineContext
-from stellabook.notebook_models import CellType, NotebookCell, NotebookContent
+from stellabook.notebook_models import CellType, Figure, NotebookCell, NotebookContent
 
 _MOCK_PAPER = Paper(
     arxiv_id="2301.07041",
@@ -45,7 +45,7 @@ class TestGenerateEndpoint:
         )
         mock_paper = _MOCK_PAPER
         mock_research = "## Background\nSome research."
-        mock_figures: list[object] = []
+        mock_figures: list[Figure] = []
         mock_pdf_bytes = b"fake-pdf"
         mock_paper_text = "Extracted paper text."
 
@@ -109,7 +109,7 @@ class TestGenerateEndpoint:
             research_model=mock_research_model,
             notebook_model=mock_notebook_model,
             paper_text=mock_paper_text,
-            figures=mock_figures,  # type: ignore[arg-type]
+            figures=mock_figures,
             interactive=False,
         )
         mock_research_fn.assert_called_once_with(expected_ctx)
@@ -124,7 +124,7 @@ class TestGenerateEndpoint:
         )
         mock_paper = _MOCK_PAPER
         mock_research = "## Background\nSome research."
-        mock_figures: list[object] = []
+        mock_figures: list[Figure] = []
         mock_pdf_bytes = b"fake-pdf"
         mock_paper_text = "Extracted paper text."
 
@@ -174,7 +174,7 @@ class TestGenerateEndpoint:
             research_model=mock_research_model,
             notebook_model=mock_notebook_model,
             paper_text=mock_paper_text,
-            figures=mock_figures,  # type: ignore[arg-type]
+            figures=mock_figures,
             interactive=True,
         )
         mock_gen.assert_called_once_with(expected_ctx, mock_research)
@@ -205,7 +205,7 @@ class TestGenerateEndpoint:
         )
         mock_paper = _MOCK_PAPER
         mock_research = "## Background\nSome research."
-        mock_figures: list[object] = []
+        mock_figures: list[Figure] = []
         mock_pdf_bytes = b"fake-pdf"
 
         mock_research_model = MagicMock()
@@ -254,7 +254,7 @@ class TestGenerateEndpoint:
             research_model=mock_research_model,
             notebook_model=mock_notebook_model,
             paper_text=None,
-            figures=mock_figures,  # type: ignore[arg-type]
+            figures=mock_figures,
             interactive=False,
         )
         mock_research_fn.assert_called_once_with(expected_ctx)
@@ -269,7 +269,7 @@ class TestGenerateEndpoint:
         )
         mock_paper = _MOCK_PAPER
         mock_research = "## Background\nSome research."
-        mock_figures: list[object] = []
+        mock_figures: list[Figure] = []
 
         mock_research_model = MagicMock()
         mock_notebook_model = MagicMock()
@@ -317,7 +317,7 @@ class TestGenerateEndpoint:
             research_model=mock_research_model,
             notebook_model=mock_notebook_model,
             paper_text=None,
-            figures=mock_figures,  # type: ignore[arg-type]
+            figures=mock_figures,
             interactive=False,
         )
         mock_research_fn.assert_called_once_with(expected_ctx)

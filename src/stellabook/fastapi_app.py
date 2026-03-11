@@ -91,7 +91,7 @@ async def generate(request: GenerateRequest) -> Response:
         arxiv_id=paper.arxiv_id,
         cell_count=len(content.cells),
     ):
-        nb = build_notebook(content, paper=ctx.paper, figures=ctx.figures)
+        nb = build_notebook(content, paper=paper, figures=figures)
         nb_json = notebook_to_json(nb)
 
     filename = f"{request.arxiv_id.replace('/', '_')}.ipynb"
